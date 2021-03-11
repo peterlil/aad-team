@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: blackboxgameengine
+  labels:
+    name: blackboxgameengine    
+spec:
+  selector:
+    name: blackboxgameengine    
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  ports:
+    - port: 80
+      name: blackboxgameengine
+      targetPort: 80
+      protocol: TCP
+    - port: 81
+      name: istio-proxy
+      targetPort: 81
+      protocol: TCP    
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: default-reader
+  namespace: default
+subjects:
+- kind: Group
+  name: system:serviceaccounts
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blackboxgameengine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: blackboxgameengine      
+  minReadySeconds: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        name: blackboxgameengine        
+    spec:
+      containers:
+      - name: blackboxgameengine
+        image: ghcr.io/azure-adventure-day/azure-adventure-day-coach/gamedayengine-web:latest
+        imagePullPolicy: Always
+        ports:
+          - containerPort: 80
+            name: gameengine
+            protocol: TCP
+        env: 
+          - name: "ConnectionStrings__GameEngineDB"
+            value: "Server=tcp:game-sqlserver.windows.net,1433;Initial Catalog=gamedb;Persist Security Info=False;User ID=gamedbadministrator;Password=herebepassword;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+          - name: "ARCADE_BACKENDURL"
+            value: "http://gamebot/pick"
+#          - name: "APPINSIGHTS_INSTRUMENTATIONKEY"
+#            value: "00000000-0000-0000-0000-000000000000"            
+      - name: istio-proxy
+        image: ghcr.io/azure-adventure-day/azure-adventure-day-coach/gamedayengine-sidecar:latest
+        imagePullPolicy: Always
+        volumeMounts:
+        - mountPath: /meshconfig
+          name: config-volume
+        ports:
+          - containerPort: 81
+            name: servicemesh         
+            protocol: TCP
+        env: 
+          - name: "ASPNETCORE_URLS"
+            value: "http://*:81"
+      volumes:
+      - name: config-volume
+        hostPath:
+          path: /etc/kubernetes/
